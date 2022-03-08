@@ -12,4 +12,4 @@ You can use the synchronous and asynchronous methods of this library like in the
 
     And don't forget to add the "androidx.datastore:datastore-preferences" dependency to your build.gradle file.
 
-2. I'll upload the library to MavenCentral later.
+2. I'll upload the library to MavenCentral later if needed.
