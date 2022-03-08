@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.*
-import java.util.concurrent.CopyOnWriteArraySet
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.EmptyCoroutineContext
 
@@ -37,7 +37,7 @@ open class DataStorePreferences private constructor(
 
     //region Synchronization members
     private val mutex = Mutex()
-    private val deferredSet = CopyOnWriteArraySet<Deferred<*>>()
+    private val deferredMap = ConcurrentHashMap<String, Deferred<*>>()
     //endregion
 
     //region Subscription members
@@ -133,13 +133,18 @@ open class DataStorePreferences private constructor(
 
     private fun <T> getSafe(key: Preferences.Key<T>, default: T): T = get(key) ?: default
 
+    @Suppress("DeferredResultUnused")
     private fun editAsync(action: (MutablePreferences) -> Unit) {
-        deferredSet.forEach { if (!it.isActive) deferredSet.remove(it) }
-        deferredSet.add(innerScope.async {
+        deferredMap.forEach { (key, deferred) ->
+            if (!deferred.isActive) deferredMap.remove(key)
+        }
+        val key = UUID.randomUUID().toString()
+        deferredMap[key] = innerScope.async {
             mutex.withLock {
                 dataStore.edit(action)
+                deferredMap.remove(key)
             }
-        })
+        }
     }
 
     private fun editSync(action: (MutablePreferences) -> Unit): Boolean =
@@ -149,10 +154,11 @@ open class DataStorePreferences private constructor(
             true
         }
 
+    @Suppress("DeferredResultUnused")
     private suspend fun awaitAll() {
-        deferredSet.forEach {
-            if (it.isActive) it.await()
-            deferredSet.remove(it)
+        deferredMap.forEach { (key, deferred) ->
+            if (deferred.isActive) deferred.await()
+            deferredMap.remove(key)
         }
     }
 

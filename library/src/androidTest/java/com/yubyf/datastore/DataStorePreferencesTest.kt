@@ -2,7 +2,6 @@ package com.yubyf.datastore
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.datastore.core.DataStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yubyf.datastore.DataStorePreferences.Companion.getDataStorePreferences
@@ -18,7 +17,7 @@ import org.junit.runner.RunWith
 private const val PREF_SP_NAME = "default"
 
 @RunWith(AndroidJUnit4::class)
-class SharedPreferenceDataStoreImplTest {
+class DataStorePreferencesTest {
 
     private val context: Context = InstrumentationRegistry.getInstrumentation().context
     private fun getDataStoreSpImpl(): SharedPreferences {
