@@ -3,8 +3,10 @@ package com.yubyf.datastore
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.SharedPreferencesMigration
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.yubyf.datastore.DataStorePreferences.Companion.getDataStorePreferences
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
@@ -17,16 +19,22 @@ import kotlin.coroutines.EmptyCoroutineContext
 /**
  * Implementation of the [SharedPreferences] interface for [DataStore].
  *
- * @author Yubyf
+ * The primary constructor is private and the instance is obtained through [getDataStorePreferences].
  */
 open class DataStorePreferences private constructor(
     context: Context,
     name: String,
     scope: CoroutineScope = CoroutineScope(Dispatchers.IO),
+    migrate: Boolean = false,
 ) : SharedPreferences {
 
     //region Datastore members
-    private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name)
+    private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+        name,
+        produceMigrations = { context ->
+            if (migrate) listOf(SharedPreferencesMigration(context, name)) else emptyList()
+        }
+    )
     private val innerScope =
         CoroutineScope(scope.coroutineContext + SupervisorJob())
     private val isMainScope =
@@ -161,19 +169,6 @@ open class DataStorePreferences private constructor(
             deferredMap.remove(key)
         }
     }
-
-    @Suppress("UNCHECKED_CAST")
-    private inline fun <reified T : Any> preferencesKey(name: String): Preferences.Key<T> {
-        return when (T::class) {
-            Int::class -> intPreferencesKey(name) as Preferences.Key<T>
-            String::class -> stringPreferencesKey(name) as Preferences.Key<T>
-            Boolean::class -> booleanPreferencesKey(name) as Preferences.Key<T>
-            Float::class -> floatPreferencesKey(name) as Preferences.Key<T>
-            Long::class -> longPreferencesKey(name) as Preferences.Key<T>
-            Set::class -> stringSetPreferencesKey(name) as Preferences.Key<T>
-            else -> throw IllegalArgumentException("Type not supported: ${T::class.java}")
-        }
-    }
     //endregion
 
     inner class Editor : SharedPreferences.Editor {
@@ -261,26 +256,49 @@ open class DataStorePreferences private constructor(
 
     companion object {
         @Volatile
-        private var instances: WeakHashMap<String, DataStorePreferences> =
+        private var INSTANCES: WeakHashMap<String, DataStorePreferences> =
             WeakHashMap<String, DataStorePreferences>()
 
+        /**
+         * Get a [DataStorePreferences] instance to access the key-value data in [DataStore]
+         * with [SharedPreferences] interface.
+         *
+         * - In Kotlin, this is a extension method of [Context], simply use it like this:
+         *
+         *      `context.getDataStorePreferences("prefName"...)`
+         *
+         * - In Java, use this as a series of static overloaded methods:
+         *
+         *      - `DataStorePreferences.getDataStorePreferences(context, "prefName")`
+         *      - `DataStorePreferences.getDataStorePreferences(context, "prefName", coroutineScope)`
+         *      - `DataStorePreferences.getDataStorePreferences(context, "prefName", coroutineScope, true)`
+         *
+         * **The received context should be `ApplicationContext` to avoid possible memory leaks.**
+         *
+         * @param name    The name of the preferences.
+         * @param scope   The scope in which IO operations and transform functions will execute.
+         * @param migrate Ture if you want to migrate the [SharedPreferences] file with
+         * current [name] to [DataStore] file.
+         *
+         * @return a [DataStore] delegate that implements the [SharedPreferences] interface as a singleton.
+         */
+        @JvmStatic
         @JvmOverloads
         fun Context.getDataStorePreferences(
             name: String,
             scope: CoroutineScope = CoroutineScope(Dispatchers.IO),
+            migrate: Boolean = false,
         ): DataStorePreferences {
-            val instance = instances[name]
+            val instance = INSTANCES[name]
             return instance ?: synchronized(DataStorePreferences::class) {
-                instance ?: DataStorePreferences(this,
-                    name,
-                    scope).also { instances[name] = it }
+                instance ?: DataStorePreferences(this, name, scope, migrate)
+                    .also { INSTANCES[name] = it }
             }
         }
     }
 }
 
 //region Extension functions for [MutablePreferences]
-
 private fun MutablePreferences.remove(key: String) = remove(stringPreferencesKey(key))
 
 @Suppress("UNCHECKED_CAST")
@@ -322,3 +340,22 @@ private operator fun MutablePreferences.set(key: String, value: Any?) {
     }
 }
 //endregion
+
+/**
+ * An inline function to get a key for an [T] preference.
+ *
+ * @param name the name of the preference
+ * @return the Preferences.Key<T> for [name]
+ */
+@Suppress("UNCHECKED_CAST")
+inline fun <reified T : Any> preferencesKey(name: String): Preferences.Key<T> {
+    return when (T::class) {
+        Int::class -> intPreferencesKey(name) as Preferences.Key<T>
+        String::class -> stringPreferencesKey(name) as Preferences.Key<T>
+        Boolean::class -> booleanPreferencesKey(name) as Preferences.Key<T>
+        Float::class -> floatPreferencesKey(name) as Preferences.Key<T>
+        Long::class -> longPreferencesKey(name) as Preferences.Key<T>
+        Set::class -> stringSetPreferencesKey(name) as Preferences.Key<T>
+        else -> throw IllegalArgumentException("Type not supported: ${T::class.java}")
+    }
+}
