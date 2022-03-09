@@ -30,7 +30,8 @@ android {
 }
 
 dependencies {
-    implementation("androidx.datastore:datastore-preferences:1.0.0")
+    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.2")
+    api("androidx.datastore:datastore-preferences:1.0.0")
 
     testImplementation("junit:junit:4.13.2")
     //For runBlockingTest, CoroutineDispatcher etc.
