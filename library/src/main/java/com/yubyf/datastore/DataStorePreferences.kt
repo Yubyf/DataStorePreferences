@@ -263,7 +263,7 @@ open class DataStorePreferences private constructor(
          * Get a [DataStorePreferences] instance to access the key-value data in [DataStore]
          * with [SharedPreferences] interface.
          *
-         * - In Kotlin, this is a extension method of [Context], simply use it like this:
+         * - In Kotlin, this is an extension method of [Context], simply use it like this:
          *
          *      `context.getDataStorePreferences("prefName"...)`
          *
