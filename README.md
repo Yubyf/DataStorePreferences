@@ -1,7 +1,7 @@
 # DataStorePreferences
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.yubyf.datastorepreferences/datastorepreferences?color=lightgreen&label=Maven%20Central)](https://search.maven.org/artifact/io.github.yubyf.datastorepreferences/datastorepreferences)
-[![API](https://img.shields.io/badge/API-21%2B-orange.svg?style=flat)](https://developer.android.com/reference/android/os/Build.VERSION_CODES.html#LOLLIPOP)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.yubyf.datastorepreferences/datastorepreferences?color=brightgreen&label=Maven%20Central)](https://search.maven.org/artifact/io.github.yubyf.datastorepreferences/datastorepreferences)
+[![API](https://img.shields.io/badge/API-21%2B-blue.svg?style=flat)](https://developer.android.com/reference/android/os/Build.VERSION_CODES.html#LOLLIPOP)
 [![License](https://img.shields.io/github/license/Yubyf/DataStorePreferences)](https://github.com/Yubyf/DataStorePreferences/blob/master/LICENSE)
 
 A simple implementation of the Android SharedPreferences interface
@@ -10,7 +10,9 @@ for [DataStore](https://developer.android.google.cn/topic/libraries/architecture
 You can use the synchronous and asynchronous methods of this library like in the instance generated
 by `Context#getSharedPreferences()`.
 
-> Note: If you need to support large or complex datasets, partial updates, or referential integrity, consider using Room instead of DataStore. DataStore is ideal for small, simple datasets and does not support partial updates or referential integrity.
+**NOTICE**: this implementation **cannot** observe the changed key of the preference through `registerOnSharedPreferenceChangeListener()` according to the [DataStore documentation](https://developer.android.google.cn/topic/libraries/architecture/datastore):
+
+> Note: If you need to support large or complex datasets, partial updates, or referential integrity, consider using Room instead of DataStore. DataStore is ideal for small, simple datasets and **does not support partial updates or referential integrity**.
 
 ## Installation
 
