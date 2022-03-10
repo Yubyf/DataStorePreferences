@@ -3,23 +3,22 @@ package com.yubyf.datastore
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.SharedPreferencesMigration
-import androidx.datastore.preferences.core.*
-import androidx.datastore.preferences.preferencesDataStore
+import com.yubyf.datastore.DataStoreDelegate.Companion.getDataStoreDelegate
 import com.yubyf.datastore.DataStorePreferences.Companion.getDataStorePreferences
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.runBlocking
 import java.util.*
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.EmptyCoroutineContext
 
 /**
  * Implementation of the [SharedPreferences] interface for [DataStore].
  *
- * The primary constructor is private and the instance is obtained through [getDataStorePreferences].
+ * Obtain a instance through [Context.getDataStorePreferences].
  */
 open class DataStorePreferences private constructor(
     context: Context,
@@ -29,43 +28,26 @@ open class DataStorePreferences private constructor(
 ) : SharedPreferences {
 
     //region Datastore members
-    private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
-        name,
-        produceMigrations = { context ->
-            if (migrate) listOf(SharedPreferencesMigration(context, name)) else emptyList()
-        }
-    )
     private val innerScope =
         CoroutineScope(scope.coroutineContext + SupervisorJob())
     private val isMainScope =
         innerScope.coroutineContext[ContinuationInterceptor] == Dispatchers.Main[ContinuationInterceptor]
-    private val dataStore = context.dataStore
-    private val dataFlow = dataStore.data
-    //endregion
-
-    //region Synchronization members
-    private val mutex = Mutex()
-    private val deferredMap = ConcurrentHashMap<String, Deferred<*>>()
+    private val delegate = context.getDataStoreDelegate(name, scope, migrate)
     //endregion
 
     //region Subscription members
     private val listeners = WeakHashMap<SharedPreferences.OnSharedPreferenceChangeListener, Any>()
     private val empty = Any()
-    private var subscriptionJob: Job? = null
     //endregion
 
     //region Override methods
     override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {
-        if (subscriptionJob?.isActive != true) {
-            subscriptionJob = innerScope.launch {
-                dataFlow.cancellable().collect {
-                    listeners.forEach { (listener, _) ->
-                        // DataStore does not support partial updates or referential integrity.
-                        // [Source](https://developer.android.google.cn/topic/libraries/architecture/datastore)
-                        listener.onSharedPreferenceChanged(
-                            this@DataStorePreferences, null)
-                    }
-                }
+        delegate.subscribe {
+            listeners.forEach { (listener, _) ->
+                // DataStore does not support partial updates or referential integrity.
+                // [Source](https://developer.android.google.cn/topic/libraries/architecture/datastore)
+                listener.onSharedPreferenceChanged(
+                    this@DataStorePreferences, null)
             }
         }
         listener?.run {
@@ -79,95 +61,41 @@ open class DataStorePreferences private constructor(
                 listeners.remove(listener)
             }
             if (listeners.isEmpty()) {
-                subscriptionJob?.cancel()
-                subscriptionJob = null
+                delegate.unSubscribe()
             }
         }
     }
 
-    override fun contains(key: String): Boolean {
-        return runBlocking(if (isMainScope) EmptyCoroutineContext else innerScope.coroutineContext) {
-            awaitAll()
-            dataFlow.map {
-                // The [equals()] and [hashCode()] methods of [Preferences$Key] compare only their names.
-                it.contains(preferencesKey<String>(key))
-            }.firstOrNull() ?: false
-        }
-    }
+    override fun contains(key: String): Boolean =
+        runBlocking { delegate.contains(key).firstOrNull() ?: false }
 
-    override fun edit(): SharedPreferences.Editor {
-        return Editor()
-    }
+    override fun edit(): SharedPreferences.Editor = Editor()
 
-    override fun getAll(): MutableMap<String, *> {
-        val map = mutableMapOf<String, Any>()
-        return runBlocking(if (isMainScope) EmptyCoroutineContext else innerScope.coroutineContext) {
-            awaitAll()
-            dataFlow.onEach {
-                it.asMap().forEach { (key, value) -> map[key.name] = value }
-            }.first()
-            map
-        }
-    }
+    override fun getAll(): Map<String, *> = runBlocking { delegate.getAll().first() }
 
     override fun getString(key: String, defValue: String?): String? =
-        get(stringPreferencesKey(key), defValue)
+        runBlocking { delegate.getString(key, defValue).firstOrNull() }
 
     override fun getStringSet(key: String, defValues: Set<String>?): Set<String>? =
-        get(stringSetPreferencesKey(key), defValues)
+        runBlocking { delegate.getStringSet(key, defValues).firstOrNull() }
 
     override fun getInt(key: String, defValue: Int): Int =
-        getSafe(intPreferencesKey(key), defValue)
+        runBlocking { delegate.getInt(key, defValue).firstOrNull() ?: defValue }
 
     override fun getLong(key: String, defValue: Long): Long =
-        getSafe(longPreferencesKey(key), defValue)
+        runBlocking { delegate.getLong(key, defValue).firstOrNull() ?: defValue }
 
     override fun getFloat(key: String, defValue: Float): Float =
-        getSafe(floatPreferencesKey(key), defValue)
+        runBlocking { delegate.getFloat(key, defValue).firstOrNull() ?: defValue }
 
     override fun getBoolean(key: String, defValue: Boolean): Boolean =
-        getSafe(booleanPreferencesKey(key), defValue)
+        runBlocking { delegate.getBoolean(key, defValue).firstOrNull() ?: defValue }
     //endregion
 
     //region Internal methods
-    private fun <T> get(key: Preferences.Key<T>, default: T? = null): T? {
-        return runBlocking(if (isMainScope) EmptyCoroutineContext else innerScope.coroutineContext) {
-            awaitAll()
-            dataFlow.map {
-                it[key] ?: default
-            }.firstOrNull()
-        }
-    }
-
-    private fun <T> getSafe(key: Preferences.Key<T>, default: T): T = get(key) ?: default
-
-    @Suppress("DeferredResultUnused")
-    private fun editAsync(action: (MutablePreferences) -> Unit) {
-        deferredMap.forEach { (key, deferred) ->
-            if (!deferred.isActive) deferredMap.remove(key)
-        }
-        val key = UUID.randomUUID().toString()
-        deferredMap[key] = innerScope.async {
-            mutex.withLock {
-                dataStore.edit(action)
-                deferredMap.remove(key)
-            }
-        }
-    }
-
-    private fun editSync(action: (MutablePreferences) -> Unit): Boolean =
-        runBlocking(if (isMainScope) EmptyCoroutineContext else innerScope.coroutineContext) {
-            awaitAll()
-            dataStore.edit(action)
-            true
-        }
-
-    @Suppress("DeferredResultUnused")
-    private suspend fun awaitAll() {
-        deferredMap.forEach { (key, deferred) ->
-            if (deferred.isActive) deferred.await()
-            deferredMap.remove(key)
-        }
+    private fun <T> runBlocking(block: suspend CoroutineScope.() -> T): T {
+        return runBlocking(if (isMainScope) EmptyCoroutineContext else innerScope.coroutineContext,
+            block)
     }
     //endregion
 
@@ -221,23 +149,25 @@ open class DataStorePreferences private constructor(
         }
 
         override fun commit(): Boolean {
-            return this@DataStorePreferences.editSync { preferences ->
-                run {
-                    if (clearOp) {
-                        preferences.clear()
-                    } else {
-                        removeOpSet.forEach { preferences.remove(it) }
+            return runBlocking {
+                delegate.editSync { preferences ->
+                    run {
+                        if (clearOp) {
+                            preferences.clear()
+                        } else {
+                            removeOpSet.forEach { preferences.remove(it) }
+                        }
+                        putOpMap.forEach { (key, value) ->
+                            preferences[key] = value
+                        }
+                        putOpMap.clear()
                     }
-                    putOpMap.forEach { (key, value) ->
-                        preferences[key] = value
-                    }
-                    putOpMap.clear()
                 }
             }
         }
 
         override fun apply() {
-            this@DataStorePreferences.editAsync { preferences ->
+            delegate.editAsync { preferences ->
                 run {
                     if (clearOp) {
                         preferences.clear()
@@ -260,18 +190,20 @@ open class DataStorePreferences private constructor(
             WeakHashMap<String, DataStorePreferences>()
 
         /**
-         * Get a [DataStorePreferences] instance to access the key-value data in [DataStore]
+         * Get a [DataStorePreferences] instance to access the pairs key/value data in [DataStore]
          * with [SharedPreferences] interface.
          *
          * - In Kotlin, this is an extension method of [Context], simply use it like this:
          *
-         *      `context.getDataStorePreferences("prefName"...)`
+         * `context.getDataStorePreferences("prefName"...)`
          *
          * - In Java, use this as a series of static overloaded methods:
          *
-         *      - `DataStorePreferences.getDataStorePreferences(context, "prefName")`
-         *      - `DataStorePreferences.getDataStorePreferences(context, "prefName", coroutineScope)`
-         *      - `DataStorePreferences.getDataStorePreferences(context, "prefName", coroutineScope, true)`
+         * ```
+         * DataStorePreferences.getDataStorePreferences(context, "prefName")
+         * DataStorePreferences.getDataStorePreferences(context, "prefName", coroutineScope)
+         * DataStorePreferences.getDataStorePreferences(context, "prefName", coroutineScope, true)
+         * ```
          *
          * **The received context should be `ApplicationContext` to avoid possible memory leaks.**
          *
@@ -280,7 +212,7 @@ open class DataStorePreferences private constructor(
          * @param migrate Ture if you want to migrate the [SharedPreferences] file with
          * current [name] to [DataStore] file.
          *
-         * @return a [DataStore] delegate that implements the [SharedPreferences] interface as a singleton.
+         * @return a [DataStore] instance that implements the [SharedPreferences] interface as a singleton.
          */
         @JvmStatic
         @JvmOverloads
@@ -288,74 +220,12 @@ open class DataStorePreferences private constructor(
             name: String,
             scope: CoroutineScope = CoroutineScope(Dispatchers.IO),
             migrate: Boolean = false,
-        ): DataStorePreferences {
+        ): SharedPreferences {
             val instance = INSTANCES[name]
             return instance ?: synchronized(DataStorePreferences::class) {
                 instance ?: DataStorePreferences(this, name, scope, migrate)
                     .also { INSTANCES[name] = it }
             }
         }
-    }
-}
-
-//region Extension functions for [MutablePreferences]
-private fun MutablePreferences.remove(key: String) = remove(stringPreferencesKey(key))
-
-@Suppress("UNCHECKED_CAST")
-private operator fun MutablePreferences.set(key: String, value: Any?) {
-    val preferenceKey: Preferences.Key<*>
-    when (value) {
-        is Int -> {
-            preferenceKey = intPreferencesKey(key)
-            this[preferenceKey] = value
-        }
-        is String -> {
-            preferenceKey = stringPreferencesKey(key)
-            this[preferenceKey] = value
-        }
-        is Boolean -> {
-            preferenceKey = booleanPreferencesKey(key)
-            this[preferenceKey] = value
-        }
-        is Float -> {
-            preferenceKey = floatPreferencesKey(key)
-            this[preferenceKey] = value
-        }
-        is Long -> {
-            preferenceKey = longPreferencesKey(key)
-            this[preferenceKey] = value
-        }
-        is Set<*> -> {
-            preferenceKey = stringSetPreferencesKey(key)
-            this[preferenceKey] = value as Set<String>
-        }
-        else -> {
-            value ?: run {
-                preferenceKey = stringPreferencesKey(key)
-                this.remove(preferenceKey)
-                return
-            }
-            throw IllegalArgumentException("Type not supported: ${value::class.java}")
-        }
-    }
-}
-//endregion
-
-/**
- * An inline function to get a key for an [T] preference.
- *
- * @param name the name of the preference
- * @return the Preferences.Key<T> for [name]
- */
-@Suppress("UNCHECKED_CAST")
-inline fun <reified T : Any> preferencesKey(name: String): Preferences.Key<T> {
-    return when (T::class) {
-        Int::class -> intPreferencesKey(name) as Preferences.Key<T>
-        String::class -> stringPreferencesKey(name) as Preferences.Key<T>
-        Boolean::class -> booleanPreferencesKey(name) as Preferences.Key<T>
-        Float::class -> floatPreferencesKey(name) as Preferences.Key<T>
-        Long::class -> longPreferencesKey(name) as Preferences.Key<T>
-        Set::class -> stringSetPreferencesKey(name) as Preferences.Key<T>
-        else -> throw IllegalArgumentException("Type not supported: ${T::class.java}")
     }
 }
