@@ -10,45 +10,42 @@ for [DataStore](https://developer.android.google.cn/topic/libraries/architecture
 You can use the synchronous and asynchronous methods of this library like in the instance generated
 by `Context#getSharedPreferences()`.
 
-**NOTICE**: this implementation **cannot** observe the changed key of the preference through `registerOnSharedPreferenceChangeListener()` according to the [DataStore documentation](https://developer.android.google.cn/topic/libraries/architecture/datastore):
+**NOTICE**: this implementation **CANNOT** observe the changed key of the preference
+through `registerOnSharedPreferenceChangeListener()` according to
+the [DataStore documentation](https://developer.android.google.cn/topic/libraries/architecture/datastore):
 
 > Note: If you need to support large or complex datasets, partial updates, or referential integrity, consider using Room instead of DataStore. DataStore is ideal for small, simple datasets and **does not support partial updates or referential integrity**.
 
 ## Installation
 
-1. Simply copy the source code of the file DataStorePreferences.kt into your project to use it.
+1\. Add `mavenCentral()` to your `repositories`:
 
-   And don't forget to add the "androidx.datastore:datastore-preferences" dependency to your
-   build.gradle file.
+ ```
+ repositories {
+     ...
+     mavenCentral()
+ }
+ ```
 
-2. Gradle
+2\. Added the dependency:
 
-    1. Add `mavenCentral()` to your `repositories`:
+Kotlin DSL
 
-        ```
-        repositories {
-            ...
-            mavenCentral()
-        }
-        ```
+ ```Kotlin
+ implementation("io.github.yubyf.datastorepreferences:datastorepreferences:$latest_version")
+ ```
 
-    2. Added the dependency:
+Groovy
 
-       Kotlin
-
-        ```Kotlin
-        implementation("io.github.yubyf.datastorepreferences:datastorepreferences:1.0.0")
-        ```
-
-       Groovy
-
-        ```groovy
-        implementation 'io.github.yubyf.datastorepreferences:datastorepreferences:1.0.0'
-        ```
+ ```groovy
+ implementation 'io.github.yubyf.datastorepreferences:datastorepreferences:${latest_version}'
+ ```
 
 ## Usage
 
-Since this library used the Kotlin coroutine, it is recommanded to use in Kotlin.
+### SharedPreferences
+
+Since this library used the Kotlin coroutine, it is recommended to use in Kotlin.
 
 Library provides an extension method of Android Context. You can simply use it like this:
 
@@ -58,9 +55,9 @@ val scope = CoroutineScope(Dispatchers.IO)
 // Ture if you want to migrate the SharedPreferences file with current name to DataStore file.
 val migrateFromSharedPreferences = true
 SharedPreferences preferences = context.getDataStorePreferences (
-    "prefFileName",
-    scope, // Optional, defalut is Dispatchers.IO
-    migrateFromSharedPreferences, // Optional, defalut is false.
+        "prefFileName",
+        scope, // Optional, default is Dispatchers.IO
+        migrateFromSharedPreferences, // Optional, default is false.
 )
 ```
 
@@ -74,6 +71,41 @@ preferences = DataStorePreferences.getDataStorePreferences(context, "prefFileNam
 ```
 
 **Notice: The received context should be `ApplicationContext` to avoid possible memory leaks.**
+
+### DataStore
+
+You can also use the DataStoreDelegate class to access DataStore preferences when you don't need to
+use the SharePreferences interface:
+
+```kotlin
+val delegate = context.getDataStoreDelegate(PREF_SP_NAME)
+// put value(async)
+delegate.put("string", "text")
+delegate.put("set", setOf("text"))
+delegate.put("int", 42)
+delegate.put("float", 42F)
+delegate.put("long", 42L)
+delegate.put("boolean", true)
+// get value(flow)
+val all: Flow<Map<String, *>> = delegate.getAll()
+val string: Flow<String?> = delegate.getString("string", "default")
+val set: Flow<Set<String>?> = delegate.getStringSet("set", null)
+val int: Flow<Int> = delegate.getInt("int", 42)
+val float: Flow<Float> = delegate.getFloat("float", 42F)
+val long: Flow<Long> = delegate.getLong("long", 42L)
+val boolean: Flow<Boolean> = delegate.getBoolean("boolean", false)
+// contains
+val result: Flow<Boolean> = delegate.contains("key")
+```
+
+`contain` and all `get` functions have corresponding suspending functions, you can use them in your
+own coroutine:
+
+```Kotlin
+val delegate = context.getDataStoreDelegate(PREF_SP_NAME)
+val result: Boolean = delegate.containsSuspend("key")
+val value: (String/Set/Int...) = get(String/StringSet/Int...)Suspend("key", defValue: (String/Set/Int...)(?))
+```
 
 ## License
 
