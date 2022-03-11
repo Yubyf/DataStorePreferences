@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Obtain a instance through [Context.getDataStoreDelegate].
  */
-@Suppress("unused")
+@Suppress("unused", "MemberVisibilityCanBePrivate")
 open class DataStoreDelegate private constructor(
     context: Context,
     name: String,
@@ -37,6 +37,15 @@ open class DataStoreDelegate private constructor(
         CoroutineScope(scope.coroutineContext + SupervisorJob())
     private val dataStore = context.dataStore
     private val dataFlow = dataStore.data
+
+    // Convert to SharedFlow optimized for sharing data among all collectors.
+    private val dataSharedFlow = dataFlow.shareIn(scope,
+        // Keep the upstream flow active for 5 seconds more after the disappearance
+        // of the last collector.
+        // That avoids restarting the upstream flow in certain situations
+        // such as configuration changes.
+        // Ref - https://medium.com/androiddevelopers/things-to-know-about-flows-sharein-and-statein-operators-20e6ccb2bc74
+        SharingStarted.WhileSubscribed(5000))
     //endregion
 
     //region Synchronization members
@@ -44,20 +53,18 @@ open class DataStoreDelegate private constructor(
     private val deferredMap = ConcurrentHashMap<String, Deferred<*>>()
     //endregion
 
-    //region Subscription
-    private var subscriptionJob: Job? = null
-    //endregion
-
     //region Public methods
-    fun subscribe(action: suspend (value: Preferences) -> Unit) {
-        if (subscriptionJob?.isActive != true) {
-            subscriptionJob = scope.launch { dataFlow.cancellable().collect(action) }
-        }
-    }
-
-    fun unSubscribe() {
-        subscriptionJob?.cancel()
-        subscriptionJob = null
+    /**
+     * Collect the data flow with a provided [action] launched in coroutine with [scope].
+     * The action block will run when a change happens to a preference.
+     *
+     * @param action The action block that will run.
+     *
+     * @return a reference to the launched coroutine as a [Job].
+     * The coroutine is cancelled when the resulting job is [cancelled][Job.cancel].
+     */
+    fun collect(action: suspend (value: Preferences) -> Unit): Job {
+        return scope.launch { dataSharedFlow.collect(action) }
     }
 
     /**
@@ -72,15 +79,28 @@ open class DataStoreDelegate private constructor(
     }
 
     /**
+     * Suspending function for [contains].
+     * @see [contains]
+     */
+    suspend fun containsSuspend(key: String): Boolean = contains(key).firstOrNull() == true
+
+    /**
      * Retrieve all values from the preferences.
      *
      * @return Returns a flow containing a read-only map of pairs key/value representing the preferences.
      */
     fun getAll(): Flow<Map<String, *>> {
-        return dataFlow.onStart { awaitAllDeferred() }.transform {
+        return dataFlow.onStart { awaitAllDeferred() }.conflate().transform {
             emit(it.asMap().mapKeys { (key, _) -> key.name })
         }
     }
+
+    /**
+     * Suspending function for [getAll].
+     * @see [getAll]
+     */
+    suspend fun getAllSuspend(): Map<String, *> =
+        getAll().firstOrNull() ?: HashMap<String, Nothing>()
 
     /**
      * Retrieve a [String] value from the preferences.
@@ -95,6 +115,13 @@ open class DataStoreDelegate private constructor(
         get(stringPreferencesKey(key), defValue)
 
     /**
+     * Suspending function for [getString].
+     * @see [getString]
+     */
+    suspend fun getStringSuspend(key: String, defValue: String? = null): String? =
+        getString(key, defValue).firstOrNull()
+
+    /**
      * Retrieve a read-only [Set] of String values from the preferences.
      *
      * @param key The name of the preference to retrieve.
@@ -105,6 +132,13 @@ open class DataStoreDelegate private constructor(
      */
     fun getStringSet(key: String, defValues: Set<String>? = null): Flow<Set<String>?> =
         get(stringSetPreferencesKey(key), defValues)
+
+    /**
+     * Suspending function for [getStringSet].
+     * @see [getStringSet]
+     */
+    suspend fun getStringSetSuspend(key: String, defValues: Set<String>? = null): Set<String>? =
+        getStringSet(key, defValues).firstOrNull()
 
     /**
      * Retrieve an [Int] value from the preferences.
@@ -119,6 +153,13 @@ open class DataStoreDelegate private constructor(
         getSafe(intPreferencesKey(key), defValue)
 
     /**
+     * Suspending function for [getInt].
+     * @see [getInt]
+     */
+    suspend fun getIntSuspend(key: String, defValue: Int = 0): Int =
+        getInt(key, defValue).firstOrNull() ?: defValue
+
+    /**
      * Retrieve an [Long] value from the preferences.
      *
      * @param key The name of the preference to retrieve.
@@ -129,6 +170,13 @@ open class DataStoreDelegate private constructor(
      */
     fun getLong(key: String, defValue: Long = 0): Flow<Long> =
         getSafe(longPreferencesKey(key), defValue)
+
+    /**
+     * Suspending function for [getLong].
+     * @see [getLong]
+     */
+    suspend fun getLongSuspend(key: String, defValue: Long = 0): Long =
+        getLong(key, defValue).firstOrNull() ?: defValue
 
     /**
      * Retrieve an [Float] value from the preferences.
@@ -143,6 +191,13 @@ open class DataStoreDelegate private constructor(
         getSafe(floatPreferencesKey(key), defValue)
 
     /**
+     * Suspending function for [getFloat].
+     * @see [getFloat]
+     */
+    suspend fun getFloatSuspend(key: String, defValue: Float = 0F): Float =
+        getFloat(key, defValue).firstOrNull() ?: defValue
+
+    /**
      * Retrieve an [Boolean] value from the preferences.
      *
      * @param key The name of the preference to retrieve.
@@ -155,6 +210,13 @@ open class DataStoreDelegate private constructor(
         getSafe(booleanPreferencesKey(key), defValue)
 
     /**
+     * Suspending function for [getBoolean].
+     * @see [getBoolean]
+     */
+    suspend fun getBooleanSuspend(key: String, defValue: Boolean = false): Boolean =
+        getBoolean(key, defValue).firstOrNull() ?: defValue
+
+    /**
      * Put a [T] value to the preferences.
      *
      * @param key The name of the preference to modify.
@@ -162,7 +224,7 @@ open class DataStoreDelegate private constructor(
      *   for this argument is equivalent to calling [remove] with this key.
      */
     fun <T> put(key: String, value: T?) {
-        editAsync { it[key] = value }
+        edit { it[key] = value }
     }
 
     /**
@@ -171,14 +233,14 @@ open class DataStoreDelegate private constructor(
      * @param key The name of the preference to remove.
      */
     fun remove(key: String) {
-        editAsync { it.remove(key) }
+        edit { it.remove(key) }
     }
 
     /**
      * Remove all values from the preferences.
      */
     fun clear() {
-        editAsync { it.clear() }
+        edit { it.clear() }
     }
 
     /**
@@ -188,7 +250,7 @@ open class DataStoreDelegate private constructor(
      * currently in DataStore. Same as parameter in `DataStore<Preferences>.edit()` method.
      */
     @Suppress("DeferredResultUnused")
-    fun editAsync(transaction: (MutablePreferences) -> Unit) {
+    fun edit(transaction: (MutablePreferences) -> Unit) {
         deferredMap.forEach { (key, deferred) ->
             if (!deferred.isActive) deferredMap.remove(key)
         }
@@ -211,7 +273,7 @@ open class DataStoreDelegate private constructor(
      * @param transaction block which accepts MutablePreferences that contains all the preferences
      * currently in DataStore. Same as parameter in `DataStore<Preferences>.edit()` method.
      */
-    suspend fun editSync(transaction: (MutablePreferences) -> Unit): Boolean {
+    suspend fun editSuspend(transaction: (MutablePreferences) -> Unit): Boolean {
         awaitAllDeferred()
         mutex.withLock {
             dataStore.edit(transaction)

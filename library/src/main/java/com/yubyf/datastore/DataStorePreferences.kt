@@ -5,12 +5,7 @@ import android.content.SharedPreferences
 import androidx.datastore.core.DataStore
 import com.yubyf.datastore.DataStoreDelegate.Companion.getDataStoreDelegate
 import com.yubyf.datastore.DataStorePreferences.Companion.getDataStorePreferences
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.firstOrNull
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import java.util.*
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.EmptyCoroutineContext
@@ -36,60 +31,56 @@ open class DataStorePreferences private constructor(
     //endregion
 
     //region Subscription members
-    private val listeners = WeakHashMap<SharedPreferences.OnSharedPreferenceChangeListener, Any>()
-    private val empty = Any()
+    private val listeners = WeakHashMap<SharedPreferences.OnSharedPreferenceChangeListener, Job>()
     //endregion
 
     //region Override methods
     override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {
-        delegate.subscribe {
+        val collectorJob = delegate.collect {
             listeners.forEach { (listener, _) ->
                 // DataStore does not support partial updates or referential integrity.
                 // [Source](https://developer.android.google.cn/topic/libraries/architecture/datastore)
                 listener.onSharedPreferenceChanged(
                     this@DataStorePreferences, null)
+                innerScope.coroutineContext.ensureActive()
             }
         }
         listener?.run {
-            listeners[listener] = empty
+            listeners[listener] = collectorJob
         }
     }
 
     override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {
         listener?.run {
             if (listeners.contains(listener)) {
-                listeners.remove(listener)
-            }
-            if (listeners.isEmpty()) {
-                delegate.unSubscribe()
+                listeners.remove(listener)?.cancel()
             }
         }
     }
 
-    override fun contains(key: String): Boolean =
-        runBlocking { delegate.contains(key).firstOrNull() ?: false }
+    override fun contains(key: String): Boolean = runBlocking { delegate.containsSuspend(key) }
 
     override fun edit(): SharedPreferences.Editor = Editor()
 
-    override fun getAll(): Map<String, *> = runBlocking { delegate.getAll().first() }
+    override fun getAll(): Map<String, *> = runBlocking { delegate.getAllSuspend() }
 
     override fun getString(key: String, defValue: String?): String? =
-        runBlocking { delegate.getString(key, defValue).firstOrNull() }
+        runBlocking { delegate.getStringSuspend(key, defValue) }
 
     override fun getStringSet(key: String, defValues: Set<String>?): Set<String>? =
-        runBlocking { delegate.getStringSet(key, defValues).firstOrNull() }
+        runBlocking { delegate.getStringSetSuspend(key, defValues) }
 
     override fun getInt(key: String, defValue: Int): Int =
-        runBlocking { delegate.getInt(key, defValue).firstOrNull() ?: defValue }
+        runBlocking { delegate.getIntSuspend(key, defValue) }
 
     override fun getLong(key: String, defValue: Long): Long =
-        runBlocking { delegate.getLong(key, defValue).firstOrNull() ?: defValue }
+        runBlocking { delegate.getLongSuspend(key, defValue) }
 
     override fun getFloat(key: String, defValue: Float): Float =
-        runBlocking { delegate.getFloat(key, defValue).firstOrNull() ?: defValue }
+        runBlocking { delegate.getFloatSuspend(key, defValue) }
 
     override fun getBoolean(key: String, defValue: Boolean): Boolean =
-        runBlocking { delegate.getBoolean(key, defValue).firstOrNull() ?: defValue }
+        runBlocking { delegate.getBooleanSuspend(key, defValue) }
     //endregion
 
     //region Internal methods
@@ -150,7 +141,7 @@ open class DataStorePreferences private constructor(
 
         override fun commit(): Boolean {
             return runBlocking {
-                delegate.editSync { preferences ->
+                delegate.editSuspend { preferences ->
                     run {
                         if (clearOp) {
                             preferences.clear()
@@ -167,7 +158,7 @@ open class DataStorePreferences private constructor(
         }
 
         override fun apply() {
-            delegate.editAsync { preferences ->
+            delegate.edit { preferences ->
                 run {
                     if (clearOp) {
                         preferences.clear()
