@@ -212,7 +212,7 @@ open class DataStorePreferences private constructor(
          * @param migrate Ture if you want to migrate the [SharedPreferences] file with
          * current [name] to [DataStore] file.
          *
-         * @return a [DataStore] instance that implements the [SharedPreferences] interface as a singleton.
+         * @return a [DataStorePreferences] instance that implements the [SharedPreferences] interface as a singleton.
          */
         @JvmStatic
         @JvmOverloads
