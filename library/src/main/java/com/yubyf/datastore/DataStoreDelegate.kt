@@ -193,10 +193,14 @@ open class DataStoreDelegate private constructor(
             if (!deferred.isActive) deferredMap.remove(key)
         }
         val key = UUID.randomUUID().toString()
-        deferredMap[key] = scope.async {
+        runBlocking {
             mutex.withLock {
-                dataStore.edit(transaction)
-                deferredMap.remove(key)
+                deferredMap[key] = scope.async {
+                    mutex.withLock {
+                        dataStore.edit(transaction)
+                        deferredMap.remove(key)
+                    }
+                }
             }
         }
     }
