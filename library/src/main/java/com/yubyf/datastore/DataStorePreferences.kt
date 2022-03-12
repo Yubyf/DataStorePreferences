@@ -42,7 +42,6 @@ open class DataStorePreferences private constructor(
                 // [Source](https://developer.android.google.cn/topic/libraries/architecture/datastore)
                 listener.onSharedPreferenceChanged(
                     this@DataStorePreferences, null)
-                innerScope.coroutineContext.ensureActive()
             }
         }
         listener?.run {
