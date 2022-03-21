@@ -233,7 +233,7 @@ open class DataStoreDelegate private constructor(
      * @param key The name of the preference to remove.
      */
     fun remove(key: String) {
-        edit { it.remove(key) }
+        edit { it -= key }
     }
 
     /**

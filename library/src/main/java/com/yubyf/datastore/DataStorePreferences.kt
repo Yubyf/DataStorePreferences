@@ -145,7 +145,7 @@ open class DataStorePreferences private constructor(
                         if (clearOp) {
                             preferences.clear()
                         } else {
-                            removeOpSet.forEach { preferences.remove(it) }
+                            removeOpSet.forEach { preferences -= it }
                         }
                         putOpMap.forEach { (key, value) ->
                             preferences[key] = value
@@ -162,7 +162,7 @@ open class DataStorePreferences private constructor(
                     if (clearOp) {
                         preferences.clear()
                     } else {
-                        removeOpSet.forEach { preferences.remove(it) }
+                        removeOpSet.forEach { preferences -= it }
                     }
                     putOpMap.forEach { (key, value) ->
                         preferences[key] = value

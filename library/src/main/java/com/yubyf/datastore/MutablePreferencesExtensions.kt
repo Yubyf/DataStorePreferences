@@ -5,7 +5,7 @@ import androidx.datastore.preferences.core.*
 /**
  * Extension functions for [MutablePreferences]
  */
-fun MutablePreferences.remove(key: String) = remove(stringPreferencesKey(key))
+operator fun MutablePreferences.minusAssign(key: String) = minusAssign(stringPreferencesKey(key))
 
 @Suppress("UNCHECKED_CAST")
 operator fun MutablePreferences.set(key: String, value: Any?) {
