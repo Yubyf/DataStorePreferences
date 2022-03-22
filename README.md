@@ -10,11 +10,10 @@ for [DataStore](https://developer.android.google.cn/topic/libraries/architecture
 You can use the synchronous and asynchronous methods of this library like in the instance generated
 by `Context#getSharedPreferences()`.
 
-**NOTICE**: this implementation **CANNOT** observe the changed key of the preference
-through `registerOnSharedPreferenceChangeListener()` according to
-the [DataStore documentation](https://developer.android.google.cn/topic/libraries/architecture/datastore):
+This implementation **SUPPORTED** observing the changed key of the preference
+through `registerOnSharedPreferenceChangeListener()` since `v1.2.0`.
 
-> Note: If you need to support large or complex datasets, partial updates, or referential integrity, consider using Room instead of DataStore. DataStore is ideal for small, simple datasets and **does not support partial updates or referential integrity**.
+**NOTICE**: But due to the [data update mechanism](https://developer.android.google.cn/topic/libraries/architecture/datastore) of DataStore, it is confusing whether the current operation is a remove operation or a clear operation when preferences containing only one element becomes empty. We consider this operation a remove operation for now.
 
 ## Installation
 
@@ -86,6 +85,8 @@ delegate.put("int", 42)
 delegate.put("float", 42F)
 delegate.put("long", 42L)
 delegate.put("boolean", true)
+// bulk put values(async)
+delegate.bulkPut(mapOf("string" to "text", "int" to 42))
 // get value(flow)
 val all: Flow<Map<String, *>> = delegate.getAll()
 val string: Flow<String?> = delegate.getString("string", "default")
