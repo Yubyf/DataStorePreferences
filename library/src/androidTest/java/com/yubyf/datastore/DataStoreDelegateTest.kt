@@ -1,7 +1,6 @@
 package com.yubyf.datastore
 
 import android.content.Context
-import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yubyf.datastore.DataStoreDelegate.Companion.getDataStoreDelegate
@@ -24,11 +23,7 @@ class DataStoreDelegateTest {
 
     @Before
     fun resetPreferences() {
-        val delegate = getDataStoreDelegate().apply {
-            this.clear()
-        }
-        val prefsAll: Map<String, *> = runBlocking { delegate.getAllSuspend() }
-        Log.d("TestRunner", "-------------Before Map $prefsAll")
+        runBlocking { getDataStoreDelegate().editSuspend { it.clear() } }
     }
 
     @Test
@@ -40,12 +35,18 @@ class DataStoreDelegateTest {
             put("bool", true)
         }
         runBlocking {
-            Assert.assertEquals("foobar",
-                delegate.getStringSuspend("string", null))
-            Assert.assertEquals(-0x1314cfda,
-                delegate.getIntSuspend("int", 0))
-            Assert.assertEquals(3.14f,
-                delegate.getFloatSuspend("float", 0f), 0.0F)
+            Assert.assertEquals(
+                "foobar",
+                delegate.getStringSuspend("string", null)
+            )
+            Assert.assertEquals(
+                -0x1314cfda,
+                delegate.getIntSuspend("int", 0)
+            )
+            Assert.assertEquals(
+                3.14f,
+                delegate.getFloatSuspend("float", 0f), 0.0F
+            )
             Assert.assertTrue(delegate.getBooleanSuspend("bool", false))
         }
     }
@@ -58,10 +59,14 @@ class DataStoreDelegateTest {
             remove("string")
         }
         runBlocking {
-            Assert.assertEquals("default",
-                delegate.getStringSuspend("string", "default"))
-            Assert.assertEquals(-0x1314cfda,
-                delegate.getIntSuspend("int", 0))
+            Assert.assertEquals(
+                "default",
+                delegate.getStringSuspend("string", "default")
+            )
+            Assert.assertEquals(
+                -0x1314cfda,
+                delegate.getIntSuspend("int", 0)
+            )
         }
     }
 
@@ -78,8 +83,10 @@ class DataStoreDelegateTest {
         }
         runBlocking {
             Assert.assertEquals(0, delegate.getAllSuspend().size)
-            Assert.assertEquals("default",
-                delegate.getStringSuspend("string", "default"))
+            Assert.assertEquals(
+                "default",
+                delegate.getStringSuspend("string", "default")
+            )
             Assert.assertEquals(0, delegate.getIntSuspend("int", 0))
         }
     }
@@ -118,10 +125,14 @@ class DataStoreDelegateTest {
     fun testReadNonexistentPref() {
         val delegate = getDataStoreDelegate()
         runBlocking {
-            Assert.assertEquals("default",
-                delegate.getStringSuspend("nonexistent_string", "default"))
-            Assert.assertEquals(1337,
-                delegate.getIntSuspend("nonexistent_int", 1337))
+            Assert.assertEquals(
+                "default",
+                delegate.getStringSuspend("nonexistent_string", "default")
+            )
+            Assert.assertEquals(
+                1337,
+                delegate.getIntSuspend("nonexistent_int", 1337)
+            )
         }
     }
 
@@ -221,8 +232,7 @@ class DataStoreDelegateTest {
         try {
             collectorJob = delegate.collect(collector)
             delegate.put("foobar", 1337)
-            Assert.assertTrue(collector.waitForChange(1))
-            Assert.assertTrue(collector.isCalled)
+            Assert.assertTrue(collector.waitForChange(1, "foobar"))
         } finally {
             collectorJob?.cancel()
         }
@@ -231,16 +241,19 @@ class DataStoreDelegateTest {
     @Test
     fun testPreferenceChangeCollectorClear() {
         val delegate = getDataStoreDelegate().apply {
-            put("foobar", 1337)
+            runBlocking {
+                editSuspend {
+                    it["foobar"] = 1337
+                    it["int"] = -0x1314cfda
+                }
+            }
         }
         val collector = TestDelegateCollector()
         var collectorJob: Job? = null
         try {
             collectorJob = delegate.collect(collector)
             delegate.clear()
-            Assert.assertTrue(collector.waitForChange(1))
-            // DataStore does not support partial updates.
-            Assert.assertNull(collector.key)
+            Assert.assertTrue(collector.waitForChange(1, null))
         } finally {
             collectorJob?.cancel()
         }
@@ -255,7 +268,7 @@ class DataStoreDelegateTest {
             collectorJob = delegate.collect(collector)
             collectorJob.cancel()
             delegate.put("foobar", 1337)
-            Assert.assertFalse(collector.waitForChange(1))
+            Assert.assertFalse(collector.waitForChange(1, "foobar"))
         } finally {
             collectorJob?.cancel()
         }
@@ -269,13 +282,11 @@ class DataStoreDelegateTest {
         try {
             collectorJob = delegate.collect(collector)
             collectorJob.cancel()
-            delegate.put("foobar", 1337)
-            Assert.assertFalse(collector.waitForChange(1))
+            delegate.bulkPut(mapOf("foobar" to 1337, "int" to -0x1314cfda))
+            Assert.assertFalse(collector.waitForChange(1, "foobar"))
             collectorJob = delegate.collect(collector)
             delegate.clear()
-            Assert.assertTrue(collector.waitForChange(1))
-            // DataStore does not support partial updates.
-            Assert.assertNull(collector.key)
+            Assert.assertTrue(collector.waitForChange(1, null))
         } finally {
             collectorJob?.cancel()
         }

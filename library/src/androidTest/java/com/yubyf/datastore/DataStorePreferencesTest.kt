@@ -224,7 +224,7 @@ class DataStorePreferencesTest {
                 .putInt("foobar", 1337)
                 .apply()
             Assert.assertTrue(listener.waitForChange(1))
-            Assert.assertTrue(listener.isCalled)
+            Assert.assertEquals("foobar", listener.key)
         } finally {
             prefs.unregisterOnSharedPreferenceChangeListener(listener)
         }
@@ -234,8 +234,9 @@ class DataStorePreferencesTest {
     fun testPreferenceChangeListenerClear() {
         val prefs = getDataStoreSpImpl().apply {
             edit()
-                .putInt("foobar", 1337)
-                .apply()
+                .putString("string", "foobar")
+                .putInt("int", -0x1314cfda)
+                .commit()
         }
         val listener = TestPreferenceListener()
         try {
@@ -244,7 +245,6 @@ class DataStorePreferencesTest {
                 .clear()
                 .apply()
             Assert.assertTrue(listener.waitForChange(1))
-            // DataStore does not support partial updates.
             Assert.assertNull(listener.key)
         } finally {
             prefs.unregisterOnSharedPreferenceChangeListener(listener)

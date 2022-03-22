@@ -4,18 +4,19 @@ import androidx.datastore.preferences.core.Preferences
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-class TestDelegateCollector : (Preferences) -> Unit {
+class TestDelegateCollector : (Preferences, Preferences.Key<*>?) -> Unit {
     var isCalled = false
         private set
-    private val mLatch: CountDownLatch = CountDownLatch(1)
-    var key: String? = null
+    private var mLatch: CountDownLatch = CountDownLatch(1)
+    private var waitingKey: String? = null
         get() {
             check(isCalled) { "Listener was not called" }
             return field
         }
         private set
 
-    fun waitForChange(seconds: Long): Boolean {
+    fun waitForChange(seconds: Long, waitingKey: String?): Boolean {
+        this.waitingKey = waitingKey
         return try {
             mLatch.await(seconds, TimeUnit.SECONDS)
         } catch (e: InterruptedException) {
@@ -23,9 +24,10 @@ class TestDelegateCollector : (Preferences) -> Unit {
         }
     }
 
-    override fun invoke(preferences: Preferences) {
+    override fun invoke(prefs: Preferences, key: Preferences.Key<*>?) {
         isCalled = true
-        key = null
-        mLatch.countDown()
+        if (waitingKey == key?.name) {
+            mLatch.countDown()
+        }
     }
 }

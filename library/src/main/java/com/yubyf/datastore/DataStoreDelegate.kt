@@ -39,19 +39,65 @@ open class DataStoreDelegate private constructor(
     private val dataFlow = dataStore.data
 
     // Convert to SharedFlow optimized for sharing data among all collectors.
-    private val dataSharedFlow = dataFlow.shareIn(scope,
-        // Keep the upstream flow active for 5 seconds more after the disappearance
-        // of the last collector.
-        // That avoids restarting the upstream flow in certain situations
-        // such as configuration changes.
-        // Ref - https://medium.com/androiddevelopers/things-to-know-about-flows-sharein-and-statein-operators-20e6ccb2bc74
-        SharingStarted.WhileSubscribed(5000))
+    private val dataSharedFlow = MutableSharedFlow<Pair<Preferences, Preferences.Key<*>?>>()
+
+    /**
+     * Cache the latest preferences map to collect the changed keys of preferences.
+     */
+    private var latestPreferences = ConcurrentHashMap<Preferences.Key<*>, Any>()
     //endregion
 
     //region Synchronization members
     private val mutex = Mutex()
     private val deferredMap = ConcurrentHashMap<String, Deferred<*>>()
     //endregion
+
+    init {
+        scope.launch {
+            // Populate the preferences cache map at the start.
+            latestPreferences.clear()
+            dataFlow.onStart { awaitAllDeferred() }.firstOrNull()?.asMap()?.let {
+                latestPreferences += it
+            }
+            dataFlow.collect { preferences ->
+                val currPreferences = preferences.asMap()
+                val latestKeys = latestPreferences.keys.toHashSet()
+                if (currPreferences.isEmpty()) {
+                    if (latestKeys.size > 1) {
+                        // Clear operation.
+                        dataSharedFlow.emit(Pair(preferences, null))
+                    } else if (latestKeys.size == 1) {
+                        // Due to the data update mechanism of DataStore,
+                        // it is confusing whether the current operation is a remove operation
+                        // or a clear operation when preferences containing only one element
+                        // becomes empty.
+                        // We consider the operation here to be a remove operation.
+                        dataSharedFlow.emit(Pair(preferences, latestKeys.first()))
+                    }
+                } else {
+                    currPreferences.forEach { (key, value) ->
+                        if (latestKeys.contains(key)) {
+                            if (value != latestPreferences[key]) {
+                                // Modify operation.
+                                dataSharedFlow.emit(Pair(preferences, key))
+                            }
+                        } else {
+                            // Add operation.
+                            dataSharedFlow.emit(Pair(preferences, key))
+                        }
+                        latestKeys.remove(key)
+                    }
+                    // Remove operations.
+                    latestKeys.forEach {
+                        dataSharedFlow.emit(Pair(preferences, it))
+                    }
+                }
+                // Populate the preferences cache map after file changes.
+                latestPreferences.clear()
+                latestPreferences += currPreferences
+            }
+        }
+    }
 
     //region Public methods
     /**
@@ -63,8 +109,12 @@ open class DataStoreDelegate private constructor(
      * @return a reference to the launched coroutine as a [Job].
      * The coroutine is cancelled when the resulting job is [cancelled][Job.cancel].
      */
-    fun collect(action: suspend (value: Preferences) -> Unit): Job {
-        return scope.launch { dataSharedFlow.collect(action) }
+    fun collect(action: suspend (prefs: Preferences, key: Preferences.Key<*>?) -> Unit): Job {
+        return scope.launch {
+            dataSharedFlow.collect { (preferences, key) ->
+                action.invoke(preferences, key)
+            }
+        }
     }
 
     /**
@@ -220,11 +270,21 @@ open class DataStoreDelegate private constructor(
      * Put a [T] value to the preferences.
      *
      * @param key The name of the preference to modify.
-     * @param value The new value for the preference.  Passing `null`
+     * @param value The new value for the preference. Passing `null`
      *   for this argument is equivalent to calling [remove] with this key.
      */
     fun <T> put(key: String, value: T?) {
         edit { it[key] = value }
+    }
+
+    /**
+     * Put multiple values to the preferences at once.
+     *
+     * @param map The pairs key/value data to be written. Passing `null` for a value
+     * is equivalent to calling [remove] with its key.
+     */
+    fun bulkPut(map: Map<String, *>) {
+        edit { map.forEach { (key, value) -> it[key] = value } }
     }
 
     /**

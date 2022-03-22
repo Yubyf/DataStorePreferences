@@ -36,12 +36,11 @@ open class DataStorePreferences private constructor(
 
     //region Override methods
     override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {
-        val collectorJob = delegate.collect {
+        val collectorJob = delegate.collect { _, key ->
             listeners.forEach { (listener, _) ->
-                // DataStore does not support partial updates or referential integrity.
-                // [Source](https://developer.android.google.cn/topic/libraries/architecture/datastore)
                 listener.onSharedPreferenceChanged(
-                    this@DataStorePreferences, null)
+                    this@DataStorePreferences, key?.name
+                )
             }
         }
         listener?.run {
