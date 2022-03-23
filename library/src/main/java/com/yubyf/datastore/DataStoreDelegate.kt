@@ -104,6 +104,8 @@ open class DataStoreDelegate private constructor(
      * Collect the data flow with a provided [action] launched in coroutine with [scope].
      * The action block will run when a change happens to a preference.
      *
+     * The [action] block will be running in the main scope.
+     *
      * @param action The action block that will run.
      *
      * @return a reference to the launched coroutine as a [Job].
@@ -112,7 +114,7 @@ open class DataStoreDelegate private constructor(
     fun collect(action: suspend (prefs: Preferences, key: Preferences.Key<*>?) -> Unit): Job {
         return scope.launch {
             dataSharedFlow.collect { (preferences, key) ->
-                action.invoke(preferences, key)
+                withContext(Dispatchers.Main) { action.invoke(preferences, key) }
             }
         }
     }
@@ -121,11 +123,13 @@ open class DataStoreDelegate private constructor(
      * Suspending collect the data flow with a provided [action].
      * The action block will run when a change happens to a preference.
      *
+     * The [action] block will be running in the main scope.
+     *
      * @param action The action block that will run.
      */
     suspend fun collectSuspend(action: suspend (prefs: Preferences, key: Preferences.Key<*>?) -> Unit) {
         return dataSharedFlow.collect { (preferences, key) ->
-            action.invoke(preferences, key)
+            withContext(Dispatchers.Main) { action.invoke(preferences, key) }
         }
     }
 
