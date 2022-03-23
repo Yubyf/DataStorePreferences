@@ -118,6 +118,18 @@ open class DataStoreDelegate private constructor(
     }
 
     /**
+     * Suspending collect the data flow with a provided [action].
+     * The action block will run when a change happens to a preference.
+     *
+     * @param action The action block that will run.
+     */
+    suspend fun collectSuspend(action: suspend (prefs: Preferences, key: Preferences.Key<*>?) -> Unit) {
+        return dataSharedFlow.collect { (preferences, key) ->
+            action.invoke(preferences, key)
+        }
+    }
+
+    /**
      * Checks whether the preferences contains a preference.
      *
      * @param key The name of the preference to check.
