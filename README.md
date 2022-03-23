@@ -108,6 +108,21 @@ val result: Boolean = delegate.containsSuspend("key")
 val value: (String/Set/Int...) = get(String/StringSet/Int...)Suspend("key", defValue: (String/Set/Int...)(?))
 ```
 
+Collect preferences changes by `collect()` and `collectSuspend()` functions:
+
+```Kotlin
+// Collect the preferences data flow with inner scope.
+val collectorJob = delegate.collect { preferences: Preferences, key: Preferences.Key ->
+    // handle the preferences change.
+}
+// Cancel the collecting job.
+collectorJob.cancel()
+// Suspending collect.
+delegate.collectSuspend { preferences: Preferences, key: Preferences.Key ->
+    // handle the preferences change.
+}
+```
+
 ## License
 
 ```
