@@ -92,7 +92,7 @@ publishing {
 
                 pom {
                     packaging = "aar"
-                    name.set(mavenGroupId)
+                    name.set(pomName)
                     description.set(pomDescription)
                     url.set(pomUrl)
                     licenses {
