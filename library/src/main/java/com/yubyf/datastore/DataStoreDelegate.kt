@@ -39,7 +39,7 @@ open class DataStoreDelegate private constructor(
     private val dataFlow = dataStore.data
 
     // Convert to SharedFlow optimized for sharing data among all collectors.
-    private val dataSharedFlow = MutableSharedFlow<Pair<Preferences, Preferences.Key<*>?>>()
+    private val _dataSharedFlow = MutableSharedFlow<Pair<Preferences, Preferences.Key<*>?>>()
 
     /**
      * Cache the latest preferences map to collect the changed keys of preferences.
@@ -65,31 +65,31 @@ open class DataStoreDelegate private constructor(
                 if (currPreferences.isEmpty()) {
                     if (latestKeys.size > 1) {
                         // Clear operation.
-                        dataSharedFlow.emit(Pair(preferences, null))
+                        _dataSharedFlow.emit(Pair(preferences, null))
                     } else if (latestKeys.size == 1) {
                         // Due to the data update mechanism of DataStore,
                         // it is confusing whether the current operation is a remove operation
                         // or a clear operation when preferences containing only one element
                         // becomes empty.
                         // We consider the operation here to be a remove operation.
-                        dataSharedFlow.emit(Pair(preferences, latestKeys.first()))
+                        _dataSharedFlow.emit(Pair(preferences, latestKeys.first()))
                     }
                 } else {
                     currPreferences.forEach { (key, value) ->
                         if (latestKeys.contains(key)) {
                             if (value != latestPreferences[key]) {
                                 // Modify operation.
-                                dataSharedFlow.emit(Pair(preferences, key))
+                                _dataSharedFlow.emit(Pair(preferences, key))
                             }
                         } else {
                             // Add operation.
-                            dataSharedFlow.emit(Pair(preferences, key))
+                            _dataSharedFlow.emit(Pair(preferences, key))
                         }
                         latestKeys.remove(key)
                     }
                     // Remove operations.
                     latestKeys.forEach {
-                        dataSharedFlow.emit(Pair(preferences, it))
+                        _dataSharedFlow.emit(Pair(preferences, it))
                     }
                 }
                 // Populate the preferences cache map after file changes.
@@ -99,7 +99,13 @@ open class DataStoreDelegate private constructor(
         }
     }
 
-    //region Public methods
+    //region Public fileds
+
+    /**
+     * The read-only flow of [Preferences].
+     */
+    val dataSharedFlow = _dataSharedFlow.asSharedFlow()
+
     /**
      * Collect the data flow with a provided [action] launched in coroutine with [scope].
      * The action block will run when a change happens to a preference.
@@ -120,18 +126,23 @@ open class DataStoreDelegate private constructor(
     }
 
     /**
-     * Suspending collect the data flow with a provided [action].
+     * Collect the data flow with a provided [action] launched in the specific [scope].
      * The action block will run when a change happens to a preference.
      *
      * The [action] block will be running in the main scope.
      *
+     * @param scope The [CoroutineScope] to launch the coroutine in.
      * @param action The action block that will run.
+     *
+     * @return a reference to the launched coroutine as a [Job].
+     * The coroutine is cancelled when the resulting job is [cancelled][Job.cancel].
      */
-    suspend fun collectSuspend(action: suspend (prefs: Preferences, key: Preferences.Key<*>?) -> Unit) {
-        return dataSharedFlow.collect { (preferences, key) ->
-            withContext(Dispatchers.Main) { action.invoke(preferences, key) }
-        }
-    }
+    fun collectIn(
+        scope: CoroutineScope,
+        action: suspend (prefs: Preferences, key: Preferences.Key<*>?) -> Unit
+    ): Job = dataSharedFlow.onEach { (preferences, key) ->
+        withContext(Dispatchers.Main) { action.invoke(preferences, key) }
+    }.launchIn(scope)
 
     /**
      * Checks whether the preferences contains a preference.
